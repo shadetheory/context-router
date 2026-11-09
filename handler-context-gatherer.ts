@@ -1,37 +1,48 @@
 import { Tools } from '@pi-sdk/tools';
 
-interface VectorSearchInput {
-  query: string;
-  limit?: number;
-}
-
-interface KnowledgeRetrieveInput {
-  query: string;
-  limit?: number;
-}
-
 interface ContextPlan {
-  vector_search?: VectorSearchInput;
-  knowledge_retrieve?: KnowledgeRetrieveInput;
-  smart_recall?: { query: string; scope?: 'project' | 'session'; kinds?: string[]; limit?: number };
-  herdr_agent_list?: boolean;
-  herdr_pane_list?: boolean;
-  bus_sessions?: boolean;
-  workspace_map?: boolean;
+  vector_search?: { query: string; limit?: number; timeout_ms?: number };
+  knowledge_retrieve?: { query: string; limit?: number; timeout_ms?: number };
+  smart_recall?: { query: string; scope?: 'project' | 'session'; kinds?: string[]; limit?: number; timeout_ms?: number };
+  herdr_agent_list?: { timeout_ms?: number };
+  herdr_pane_list?: { timeout_ms?: number };
+  bus_sessions?: { timeout_ms?: number };
+  workspace_map?: { timeout_ms?: number };
+  repo_spatial?: { repos: string[]; timeout_ms?: number };
 }
 
 interface ContextResult {
   source: string;
   content: string;
   score?: number;
-  age?: number; // days
+  age?: number;
   metadata?: Record<string, unknown>;
 }
 
-interface GatheredContext {
-  memory: ContextResult[];
-  live: Record<string, unknown>;
-  errors: string[];
+function executeWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  return Promise.race<T>([
+    fn(),
+    new Promise<T>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timeoutId));
+}
+
+function repoSpatialCall(plan: { repos: string[]; timeout_ms?: number }): Promise<string> {
+  const timeout = plan.timeout_ms ?? 10000;
+  return new Promise<string>((resolve, reject) => {
+    const timeoutId = setTimeout(
+      () => reject(new Error(`repo_spatial timeout after ${timeout}ms`)),
+      timeout
+    );
+    // In production, this would call an MCP server or web service
+    // For now, return a placeholder
+    clearTimer();
+    resolve(JSON.stringify({ repos: plan.repos, count: plan.repos.length, max_age_days: 30 }));
+  });
+
+  function clearTimer() { clearTimeout(timeoutId); }
 }
 
 export default {
@@ -47,43 +58,73 @@ export default {
 
     if (planObj.vector_search) {
       calls.push(
-        tools.vector_search(planObj.vector_search).then((res) => ({ source: 'vector_search', content: res, type: 'memory' }))
+        executeWithTimeout(
+          () => tools.vector_search(planObj.vector_search),
+          planObj.vector_search.timeout_ms ?? 5000
+        ).then((res) => ({ source: 'vector_search', content: res, type: 'memory' }))
       );
     }
 
     if (planObj.knowledge_retrieve) {
       calls.push(
-        tools.knowledge_retrieve(planObj.knowledge_retrieve).then((res) => ({ source: 'knowledge_retrieve', content: res, type: 'memory' }))
+        executeWithTimeout(
+          () => tools.knowledge_retrieve(planObj.knowledge_retrieve),
+          planObj.knowledge_retrieve.timeout_ms ?? 5000
+        ).then((res) => ({ source: 'knowledge_retrieve', content: res, type: 'memory' }))
       );
     }
 
     if (planObj.smart_recall) {
       calls.push(
-        tools.smart_recall(planObj.smart_recall).then((res) => ({ source: 'smart_recall', content: res, type: 'memory' }))
+        executeWithTimeout(
+          () => tools.smart_recall(planObj.smart_recall),
+          planObj.smart_recall.timeout_ms ?? 5000
+        ).then((res) => ({ source: 'smart_recall', content: res, type: 'memory' }))
       );
     }
 
     if (planObj.herdr_agent_list) {
       calls.push(
-        tools.bus_sessions({}).then((res) => ({ source: 'herdr_agent_list', content: res, type: 'live', key: 'agents' }))
+        executeWithTimeout(
+          () => tools.bus_sessions({}),
+          planObj.herdr_agent_list.timeout_ms ?? 3000
+        ).then((res) => ({ source: 'herdr_agent_list', content: res, type: 'live', key: 'agents' }))
       );
     }
 
     if (planObj.herdr_pane_list) {
       calls.push(
-        tools.workspace_map({}).then((res) => ({ source: 'herdr_pane_list', content: res, type: 'live', key: 'panes' }))
+        executeWithTimeout(
+          () => tools.workspace_map({}),
+          planObj.herdr_pane_list.timeout_ms ?? 3000
+        ).then((res) => ({ source: 'herdr_pane_list', content: res, type: 'live', key: 'panes' }))
       );
     }
 
     if (planObj.bus_sessions) {
       calls.push(
-        tools.bus_sessions({}).then((res) => ({ source: 'bus_sessions', content: res, type: 'live', key: 'sessions' }))
+        executeWithTimeout(
+          () => tools.bus_sessions({}),
+          planObj.bus_sessions.timeout_ms ?? 3000
+        ).then((res) => ({ source: 'bus_sessions', content: res, type: 'live', key: 'sessions' }))
       );
     }
 
     if (planObj.workspace_map) {
       calls.push(
-        tools.workspace_map({}).then((res) => ({ source: 'workspace_map', content: res, type: 'live', key: 'workspace' }))
+        executeWithTimeout(
+          () => tools.workspace_map({}),
+          planObj.workspace_map.timeout_ms ?? 3000
+        ).then((res) => ({ source: 'workspace_map', content: res, type: 'live', key: 'workspace' }))
+      );
+    }
+
+    if (planObj.repo_spatial) {
+      calls.push(
+        executeWithTimeout(
+          () => repoSpatialCall(planObj.repo_spatial),
+          planObj.repo_spatial.timeout_ms ?? 10000
+        ).then((res) => ({ source: 'repo_spatial', content: res, type: 'memory' }))
       );
     }
 

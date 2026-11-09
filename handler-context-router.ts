@@ -15,13 +15,14 @@ You are a context-router. Turn natural language queries into exact tool call pla
 
 Output ONLY valid JSON like:
 {
-  "vector_search": {"query": "...", "limit": 5},
-  "knowledge_retrieve": true,
-  "smart_recall": {"query": "...", "scope": "project"},
-  "herdr_agent_list": true,
-  "herdr_pane_list": true,
-  "bus_sessions": true,
-  "workspace_map": true
+  "vector_search": {"query": "...", "limit": 5, "timeout_ms": 5000},
+  "knowledge_retrieve": {"query": "...", "limit": 5, "timeout_ms": 5000},
+  "smart_recall": {"query": "...", "scope": "project", "limit": 5, "timeout_ms": 5000},
+  "herdr_agent_list": {"timeout_ms": 3000},
+  "herdr_pane_list": {"timeout_ms": 3000},
+  "bus_sessions": {"timeout_ms": 3000},
+  "workspace_map": {"timeout_ms": 3000},
+  "repo_spatial": {"repos": ["owner/repo"], "timeout_ms": 10000}
 }
 
 Rules:
@@ -29,18 +30,21 @@ Rules:
 - Don't duplicate tools
 - Don't invent tools not listed above
 - If unsure, omit the tool
+- Live state tools (herdr_*, bus_, workspace_) should not be cached; always fetch fresh
 
 Query: "${query}"
+
+JSON plan:
 `;
 
   const { text } = await tools.codemode({
     code: `
 const prompt = ${JSON.stringify(prompt)};
-return {
-  vector_search: { query: "asgard", limit: 5 },
-  knowledge_retrieve: true,
-  herdr_agent_list: true
-};
+return JSON.stringify({
+  vector_search: { query: "${query}", limit: 5 },
+  knowledge_retrieve: { query: "${query}", limit: 5 },
+  herdr_pane_list: { timeout_ms: 3000 }
+});
 `
   });
 
@@ -54,7 +58,7 @@ return {
 }
 
 function validatePlan(plan: Record<string, unknown>): Record<string, unknown> {
-  const validTools = new Set(['vector_search', 'knowledge_retrieve', 'smart_recall', 'herdr_agent_list', 'herdr_pane_list', 'bus_sessions', 'workspace_map']);
+  const validTools = new Set(['vector_search', 'knowledge_retrieve', 'smart_recall', 'herdr_agent_list', 'herdr_pane_list', 'bus_sessions', 'workspace_map', 'repo_spatial']);
   const result: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(plan)) {
