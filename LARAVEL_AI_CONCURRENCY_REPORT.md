@@ -1,4 +1,7 @@
 # Laravel AI Concurrency Feasibility Report
+
+> Status: the gatherer in this repository runs the tool reads with `Promise.allSettled`, per-tool timeouts, and a hard output budget. See `SPEC.md`. The notes below are the original feasibility write-up and are not the current design.
+
 ## Date: 2026-11-09
 ## Author: pi
 

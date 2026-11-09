@@ -1,0 +1,19 @@
+{
+  "name": "context-router",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Deterministic context planner and bounded parallel gatherer",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/planner.test.ts test/gatherer.test.ts test/budget.test.ts test/repo-spatial.test.ts test/handlers.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.0"
+  },
+  "license": "MIT"
+}

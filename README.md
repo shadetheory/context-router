@@ -1,82 +1,59 @@
 # Context Router
 
-A self-improving system that automatically gathers exactly the context needed for each task by dynamically selecting and parallelizing the right tools.
+Deterministic planner and bounded gatherer for context lookups.
 
-## Vision
+Repository: [github.com/shadetheory/context-router](https://github.com/shadetheory/context-router)
 
-- **Router**: Maps natural language queries → JSON tool plan using local model
-- **Gatherer**: Fires all tools in parallel, merges results
-- **Goal**: 0 manual context lookups. Every task gets full context automatically.
-
-## Architecture
+An ask is planned without a model when the wording is obvious. Independent reads then run together, and the main model receives one summary that cannot exceed a hard output budget. Parallel reads cut latency. They do not raise that budget.
 
 ```
-QUERY → Router (local model) → JSON plan → Gatherer (parallel) → Merged context
+ask → planner (keywords, else embeddings, else a small local model)
+    → parallel reads (timeouts, partial failure, dedupe, rank)
+    → one summary clipped to the output budget
 ```
 
-## Tools Supported
+## Tools
 
-- `vector_search` — semantic memory (Qdrant)
-- `knowledge_retrieve` — hybrid search (Qdrant + Meilisearch)
-- `smart_recall` — session memory
-- `herdr_agent_list` — agent bus agents
-- `herdr_pane_list` — herdr panes
-- `bus_sessions` — agent sessions
-- `workspace_map` — project context
-- `repo_spatial` — GitHub repos
+| Tool | Read |
+| --- | --- |
+| `vector_search` | Semantic memory |
+| `knowledge_retrieve` | Hybrid knowledge search. Params are always an object. |
+| `smart_recall` | Session memory |
+| `herdr_agent_list` | Agent roster. Not an alias of `bus_sessions`. |
+| `herdr_pane_list` | Open panes. Not a file listing. |
+| `bus_sessions` | Who is connected |
+| `workspace_map` | Project files and workspace structure |
+| `repo_spatial` | Opt-in code-index hook. See issue #1. |
 
-## Usage
+Live agent, pane, session, and workspace reads skip the cache. Memory reads may be reused for five minutes. `repo_spatial` is never cached, because a stale index is not current source.
+
+The built-in tools are reads. A write-capable tool runs only when that call passes an explicit approval.
+
+## Examples
+
+| Ask | Plan |
+| --- | --- |
+| who is online | `bus_sessions` |
+| what panes are open | `herdr_pane_list` |
+| list files in project | `workspace_map` |
+| find decisions about NAS | `vector_search` and `knowledge_retrieve` |
+| what do you know about asgard | those memory tools, and no invented repository |
+| check PR status for lex | no tools. Gap: there is no live pull-request status tool |
+| where is gather defined in shadetheory/context-router | `repo_spatial` for that repository |
+
+"are the panes open now" is not a stored phrase. A local token embedding maps it to `herdr_pane_list` without calling a model. A vague ask such as "status" calls `LocalModel.complete` once, and only if a model was provided. With no model, an ambiguous ask selects nothing.
+
+## Code index
+
+`repo_spatial` is a host-supplied interface: enabled repositories, snippet retrieval, and a direct file/search fallback. This repository does not index code. Nothing is indexed unless the host lists that repo. Secret and generated paths are dropped. If the index is missing or stale, the gatherer uses direct search and does not present stale snippets as current source. The output budget still applies.
+
+## Develop
+
+Node.js 22.18 or newer.
 
 ```bash
-/lookup what do you know about asgard
+npm test
+npm run typecheck
 ```
 
-Output:
-
-```json
-{
-  "vector_search": {"query": "asgard", "limit": 5},
-  "knowledge_retrieve": {"query": "asgard", "limit": 5},
-  "repo_spatial": ["jordanpartridge/asgard"]
-}
-```
-
-## Local Control Tools (Thor + Hyprland + Browser)
-
-### Hyprland
-
-- `hyprctl` — CLI for controlling Hyprland
-- `hyprland -d` — debug mode for logging
-- Socket interface for client automation
-
-### qutebrowser
-
-- IPC wrapper at `~/.local/bin/qute-ipc.sh`
-- Keybindings for automation triggers
-- JSON output mode for programmatic control
-
-### AutoPilot Scripts
-
-See `~/.local/bin/autopilot.sh` for scheduled tasks:
-- Morning pages (Hacker News, Gmail, GitHub)
-- Daily dashboard screenshot
-- PDF save, search, etc.
-
-## Proof of Concept
-
-Run 10 queries, log misroutes, retrain router.
-
-**Success criteria:**
-- Router correctly selects tools for ≥9/10 queries
-- Parallel gatherer finishes in ≤350ms wall time
-- No unhandled errors
-
-## Documentation
-
-- `SPEC.md` — full specification
-- `router-prompt.md` — router prompt + examples
-- `gatherer-logic.md` — gatherer implementation
-
-## License
-
-MIT
+`SPEC.md` is the behavior this package ships. `LOOKUP_COMMAND.md` describes `/lookup`.
