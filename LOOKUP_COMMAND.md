@@ -38,7 +38,7 @@ Router output (intermediate):
 {
   "vector_search": {"query": "asgard", "limit": 5},
   "knowledge_retrieve": {"query": "asgard", "limit": 5},
-  "repo_spatial": ["jordanpartridge/asgard"]
+  "repo_spatial": ["shadetheory/asgard"]
 }
 ```
 
@@ -46,7 +46,7 @@ Gatherer parallel calls:
 
 - `vector_search({"query": "asgard", "limit": 5})`
 - `knowledge_retrieve({"query": "asgard", "limit": 5})`
-- `repo_spatial(["jordanpartridge/asgard"])`
+- `repo_spatial(["shadetheory/asgard"])`
 
 Final output:
 
@@ -56,7 +56,7 @@ Final output:
 - [knowledge_retrieve] "Vector memory sidecar health check" (score: 0.76, age: 4d)
 
 ## Repos
-- jordanpartridge/asgard (main, 48 commits latest)
+- shadetheory/asgard (main, 48 commits latest)
 ```
 
 ## Next Steps

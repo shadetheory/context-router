@@ -37,7 +37,7 @@ Output:
 {
   "vector_search": {"query": "asgard", "limit": 5},
   "knowledge_retrieve": {"query": "asgard", "limit": 5},
-  "repo_spatial": ["jordanpartridge/asgard"]
+  "repo_spatial": ["shadetheory/asgard"]
 }
 ```
 

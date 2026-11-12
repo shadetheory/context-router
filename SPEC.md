@@ -98,7 +98,7 @@ Q: "find decisions about NAS"
 A: {"vector_search": {"query": "NAS decision", "limit": 5}, "knowledge_retrieve": {"query": "NAS decision", "limit": 5}}
 
 Q: "what do you know about asgard"
-A: {"vector_search": {"query": "asgard", "limit": 5}, "knowledge_retrieve": {"query": "asgard", "limit": 5}, "repo_spatial": ["jordanpartridge/asgard"]}
+A: {"vector_search": {"query": "asgard", "limit": 5}, "knowledge_retrieve": {"query": "asgard", "limit": 5}, "repo_spatial": ["shadetheory/asgard"]}
 
 Q: "check PR status for lex"
 A: {"vector_search": {"query": "lex PR", "limit": 3}, "knowledge_retrieve": {"query": "lex PR", "limit": 3}}
@@ -154,7 +154,7 @@ A: {"vector_search": {"query": "file manipulation pattern", "limit": 5}, "knowle
 | 2. Gatherer logic | `~/.pi/agent/skills/context-gatherer/SKILL.md` | ✅ Draft |
 | 3. `/lookup` slash command | `~/.pi/agent/skills/context-router/` | 🔜 |
 | 4. Feedback logging | `~/.pi/agent/learning/context-routes.json` | 🔜 |
-| 5. Git repo | `github.com/jordanpartridge/context-router` | 🔜 |
+| 5. Git repo | `github.com/shadetheory/context-router` | 🔜 |
 
 ---
 
