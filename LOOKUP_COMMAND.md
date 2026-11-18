@@ -1,67 +1,41 @@
-# /lookup Slash Command
+# /lookup
 
-A unified interface for context gathering: `router` (classify query) → `gatherer` (parallel fetch) → formatted output.
+`/lookup` plans an ask and returns one bounded summary.
+
+Repository: [https://github.com/shadetheory/context-router](https://github.com/shadetheory/context-router)
 
 ## Usage
 
-```markdown
-/lookup what do you know about asgard
+```
+/lookup what panes are open
 /lookup who is online
-/lookup list all panes
+/lookup list files in project
 /lookup find decisions about NAS
+/lookup check PR status for lex
 ```
 
-## How It Works
+## What it does
 
-1. **Router**: Parses query → JSON tool plan (local model)
-2. **Gatherer**: Fires all tools in parallel → merge results
-3. **Format**: Structured markdown with citations
+1. The planner in `src/planner.ts` builds a tool plan. Keywords and local embeddings handle obvious asks. A caller-supplied local model runs only when the ask is ambiguous.
+2. The gatherer in `src/gatherer.ts` runs the selected reads with `Promise.allSettled`, a timeout per read, and partial-failure handling.
+3. Hits are deduped, ranked, and packed into one summary. The summary length is at most the output budget (default 4000 characters).
 
-## Files
+Live agent, pane, session, and workspace reads are not cached. `herdr_agent_list` calls the host's agent method, not `bus_sessions`. `herdr_pane_list` lists panes, not files.
 
-- `~/.pi/agent/skills/context-router/index.ts` — query → tool plan
-- `~/.pi/agent/skills/context-gatherer/index.ts` — tool plan → parallel fetch → merge
-- `~/.pi/agent/learning/context-routes.json` — feedback loop (misroutes)
-- `~/.pi/agent/learning/context-errors.json` — tool errors
+## Examples
 
-## Example
+`/lookup who is online` plans `bus_sessions` only.
 
-Input:
+`/lookup find decisions about NAS` plans `vector_search` and `knowledge_retrieve` with object params. The query text is the ask itself.
 
-```
-/lookup what do you know about asgard
-```
+`/lookup list files in project` plans `workspace_map`.
 
-Router output (intermediate):
+`/lookup check PR status for lex` plans no tools. The summary says there is no live pull-request tool and does not query stored memory as a substitute.
 
-```json
-{
-  "vector_search": {"query": "asgard", "limit": 5},
-  "knowledge_retrieve": {"query": "asgard", "limit": 5},
-  "repo_spatial": ["jordanpartridge/asgard"]
-}
-```
+`/lookup where is gather defined in shadetheory/context-router` plans `repo_spatial` for that repository. The gatherer calls the opt-in index hook from issue #1. If that repo is not enabled, or the index is stale, it uses direct file search when a fallback is configured. It does not invent an index and it does not return stale snippets as current source.
 
-Gatherer parallel calls:
+The entrypoint is `index.ts`. Routing and gathering can also be called on their own through `handler-context-router.ts` and `handler-context-gatherer.ts`.
 
-- `vector_search({"query": "asgard", "limit": 5})`
-- `knowledge_retrieve({"query": "asgard", "limit": 5})`
-- `repo_spatial(["jordanpartridge/asgard"])`
+## Not included
 
-Final output:
-
-```markdown
-## Context from memory
-- [vector] "Pi Improvement Loop - 2026-10-20 circuit breaker around /api/embed" (score: 0.88, age: 20d)
-- [knowledge_retrieve] "Vector memory sidecar health check" (score: 0.76, age: 4d)
-
-## Repos
-- jordanpartridge/asgard (main, 48 commits latest)
-```
-
-## Next Steps
-
-1. Implement `/lookup` wrapper skill (slash command) that chains router → gatherer
-2. Test with 5–10 queries, log misroutes
-3. Build feedback loop (weekly retrain on misroutes)
-4. Add feedback UI (✅/❌ buttons in pi chat)
+Misroute logs and a retrain loop are not part of this command. A code indexer is not included; only the `repo_spatial` hook is.
