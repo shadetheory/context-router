@@ -64,8 +64,36 @@ export const unavailableRepoSpatial: RepoSpatialProvider = {
   },
 };
 
-const SECRET_FILE = /(?:^|\/)(?:\.env(?:\..*)?|credentials\.(?:json|ya?ml|toml)|secrets\.(?:json|ya?ml|toml)|id_rsa|id_dsa|\.npmrc|\.pypirc|[^/]+\.(?:pem|key))$/i;
-const SECRET_DIR = /(?:^|\/)(?:secrets|credentials)\//i;
+/**
+ * Files that hold credentials or private keys. Matched against the whole
+ * path, so a filename is caught at any depth. Public keys (`*.pub`) are not
+ * secrets and stay visible outside `.ssh/`.
+ */
+const SECRET_FILE = new RegExp(
+  "(?:^|/)(?:" +
+    [
+      String.raw`\.env(?:\..*)?`,
+      String.raw`\.envrc`,
+      String.raw`[^/]*credentials\.(?:json|ya?ml|toml)`,
+      "credentials",
+      String.raw`secrets\.(?:json|ya?ml|toml)`,
+      String.raw`id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?`,
+      String.raw`\.npmrc`,
+      String.raw`\.pypirc`,
+      String.raw`[._]netrc`,
+      String.raw`\.pgpass`,
+      String.raw`\.my\.cnf`,
+      String.raw`\.git-credentials`,
+      String.raw`\.htpasswd`,
+      String.raw`\.docker/config\.json`,
+      String.raw`\.kube/config`,
+      String.raw`[^/]+\.(?:pem|key|p12|pfx|jks|keystore|ppk|kdbx|tfstate|tfstate\.backup|tfvars)`,
+    ].join("|") +
+    ")$",
+  "i",
+);
+/** Directories whose every file is credential material. */
+const SECRET_DIR = /(?:^|\/)(?:secrets|credentials|\.ssh|\.aws|\.gnupg)\//i;
 const GENERATED = /(?:^|\/)(?:node_modules|dist|build|coverage|vendor|\.next|out|generated)\//i;
 const MINIFIED = /\.(?:min\.js|min\.css|map)$/i;
 
