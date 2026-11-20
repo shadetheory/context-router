@@ -29,6 +29,51 @@ test("secret and generated paths are excluded", () => {
   assert.equal(isExcludedPath("src/secret-rotation.ts"), false);
 });
 
+test("credential files and private keys are excluded at any depth", () => {
+  for (const path of [
+    ".aws/credentials",
+    "home/me/.aws/config",
+    ".ssh/id_ed25519",
+    "deploy/id_ed25519",
+    "keys/id_ecdsa",
+    "id_ed25519_sk",
+    ".ssh/known_hosts",
+    ".netrc",
+    "_netrc",
+    ".pgpass",
+    ".my.cnf",
+    ".git-credentials",
+    ".docker/config.json",
+    ".kube/config",
+    ".gnupg/private-keys-v1.d/abc.key",
+    "certs/client.p12",
+    "android/release.keystore",
+    "infra/terraform.tfstate",
+    "infra/prod.tfvars",
+    "gcloud/application_default_credentials.json",
+    ".envrc",
+    "credentials",
+    "C:\\Users\\me\\.aws\\credentials",
+  ]) {
+    assert.equal(isExcludedPath(path), true, path);
+  }
+});
+
+test("ordinary source that mentions secrets stays visible", () => {
+  for (const path of [
+    "src/aws.ts",
+    "docs/ssh.md",
+    "src/netrc-parser.ts",
+    "config.json",
+    "docker/config.ts",
+    "keys/id_ed25519.pub",
+    "src/credentials-form.tsx",
+    "src/kube/config.ts",
+  ]) {
+    assert.equal(isExcludedPath(path), false, path);
+  }
+});
+
 test("snippet packing stays inside the hint budget", () => {
   const snippets: RepoSpatialSnippet[] = [
     { repo: "shadetheory/context-router", path: "src/a.ts", text: "A".repeat(50) },
