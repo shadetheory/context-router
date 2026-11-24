@@ -112,12 +112,19 @@ export interface Budget {
   maxChars: number;
   /** Max characters of a single hit before it competes for the budget. */
   perItemChars: number;
+  /** Hard ceiling on code-search (repo_spatial) lines inside the summary. Never above maxChars. */
+  codeMaxChars: number;
 }
 
+/** Jordan's Nov 9 budget: 6,000 characters in total, at most 3,000 of them code search. */
 export const DEFAULT_BUDGET: Budget = {
-  maxChars: 4_000,
+  maxChars: 6_000,
   perItemChars: 600,
+  codeMaxChars: 3_000,
 };
+
+/** A gather returns what it has at this point. Reads that land later are dropped and logged. */
+export const DEFAULT_DEADLINE_MS = 10_000;
 
 export interface Hit {
   sources: ToolName[];
@@ -129,6 +136,8 @@ export interface Hit {
   observedAt: number;
   live: boolean;
   stale: boolean;
+  /** Where this text came from: repo:path:line for code, tool:ref or tool#n otherwise. */
+  cite: string;
 }
 
 export interface ToolError {
@@ -136,9 +145,30 @@ export interface ToolError {
   message: string;
 }
 
+/** A read that had not finished when the gather deadline passed. Its result is never used. */
+export interface LateResult {
+  tool: string;
+  deadlineMs: number;
+}
+
+export interface PackStats {
+  /** Characters the reads returned before dedupe, clipping, and budgets. */
+  rawChars: number;
+  /** Length of the summary handed back. */
+  packedChars: number;
+  /** Characters of code-search lines kept in the summary. */
+  codeChars: number;
+  /** packedChars / rawChars, rounded to 3 places. 0 when nothing came back. */
+  ratio: number;
+}
+
 export interface GatherResult {
   summary: string;
   omitted: number;
+  /** Citation for each context line kept in the summary, in summary order. */
+  citations: string[];
+  late: LateResult[];
+  stats: PackStats;
   errors: ToolError[];
   gaps: Gap[];
   /** Executor invocations. Coalesced duplicate reads count once. */

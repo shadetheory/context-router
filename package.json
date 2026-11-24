@@ -5,7 +5,7 @@
   "description": "Deterministic context planner and bounded parallel gatherer",
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test test/planner.test.ts test/gatherer.test.ts test/budget.test.ts test/repo-spatial.test.ts test/handlers.test.ts test/catalog.test.ts test/plan.test.ts",
+    "test": "node --experimental-strip-types --test test/planner.test.ts test/gatherer.test.ts test/budget.test.ts test/repo-spatial.test.ts test/handlers.test.ts test/pack.test.ts test/catalog.test.ts test/plan.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
