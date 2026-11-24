@@ -57,3 +57,7 @@ npm run typecheck
 ```
 
 `SPEC.md` is the behavior this package ships. `LOOKUP_COMMAND.md` describes `/lookup`.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the code-approval and merge rule.
