@@ -12,11 +12,13 @@ import {
 } from "./repo-spatial.ts";
 import { clamp01, stableStringify } from "./text.ts";
 import {
+  DEFAULT_DEADLINE_MS,
   TIMEOUTS_MS,
   type Budget,
   type Gap,
   type GatherResult,
   type Hit,
+  type LateResult,
   type PlanTools,
   type QueryPlan,
   type ToolError,
@@ -41,6 +43,10 @@ export interface GatherDeps {
   approval?: WriteApproval;
   /** Override the read-only catalog. Write tools run only when named in `approval`. */
   modes?: Partial<Record<string, ToolMode>>;
+  /** Whole-gather deadline. Reads still running then are cancelled and their results dropped. */
+  deadlineMs?: number;
+  /** Called when a dropped read finally settles, so a host can log how late it was. */
+  onLate?: (event: { tool: string; elapsedMs: number; deadlineMs: number; status: "ok" | "error" }) => void;
 }
 
 interface Job {
@@ -54,7 +60,7 @@ let executorSeq = 1;
 
 export class ToolCallError extends Error {
   readonly tool: string;
-  readonly kind: "timeout" | "failure";
+  readonly kind: "timeout" | "failure" | "cancelled";
 
   constructor(tool: string, kind: ToolCallError["kind"], message: string) {
     super(message);
@@ -68,9 +74,12 @@ export async function runWithTimeout<T>(
   tool: string,
   timeoutMs: number,
   fn: (signal: AbortSignal) => Promise<T>,
+  parent?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onParentAbort: (() => void) | undefined;
+  if (parent?.aborted) throw new ToolCallError(tool, "cancelled", `${tool} was cancelled`);
   const work = fn(controller.signal);
   work.then(() => undefined, () => undefined);
   try {
@@ -81,12 +90,25 @@ export async function runWithTimeout<T>(
           controller.abort();
           reject(new ToolCallError(tool, "timeout", `${tool} timed out after ${timeoutMs}ms`));
         }, timeoutMs);
+        if (parent) {
+          onParentAbort = () => {
+            controller.abort();
+            reject(new ToolCallError(tool, "cancelled", `${tool} was cancelled`));
+          };
+          parent.addEventListener("abort", onParentAbort, { once: true });
+        }
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
+    if (parent && onParentAbort) parent.removeEventListener("abort", onParentAbort);
   }
 }
+
+type Settled =
+  | { status: "fulfilled"; job: Job; value: unknown }
+  | { status: "rejected"; job: Job; reason: unknown }
+  | { status: "late"; job: Job };
 
 /**
  * Run independent reads together. One failure or timeout does not cancel the
@@ -123,7 +145,7 @@ export async function gather(plan: GatherInput, deps: GatherDeps = {}): Promise<
       jobs.push({
         tools: [tool],
         timeoutMs,
-        run: (signal) => collectRepoSpatial(params as PlanTools["repo_spatial"], deps, budget.maxChars, signal),
+        run: (signal) => collectRepoSpatial(params as PlanTools["repo_spatial"], deps, budget.codeMaxChars, signal),
       });
       continue;
     }
@@ -170,13 +192,46 @@ export async function gather(plan: GatherInput, deps: GatherDeps = {}): Promise<
     });
   }
 
-  const settled = await Promise.allSettled(jobs.map(async (job) => {
-    invocations.push(job.tools.join("+"));
-    const value = await runWithTimeout(job.tools.join("+"), job.timeoutMs, job.run);
-    return { job, value };
-  }));
+  const deadlineMs = Number.isFinite(deps.deadlineMs) && (deps.deadlineMs ?? 0) > 0 ? deps.deadlineMs! : DEFAULT_DEADLINE_MS;
+  const cancel = new AbortController();
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    deadlineTimer = setTimeout(resolve, deadlineMs);
+  });
+  const running = jobs.map((job) => {
+    const label = job.tools.join("+");
+    invocations.push(label);
+    const startedAt = Date.now();
+    const done: Promise<Settled> = runWithTimeout(label, job.timeoutMs, job.run, cancel.signal).then(
+      (value) => ({ status: "fulfilled", job, value }),
+      (reason) => ({ status: "rejected", job, reason }),
+    );
+    return { job, label, startedAt, done };
+  });
+  const settled: Settled[] = await Promise.all(running.map((entry) =>
+    Promise.race([entry.done, deadline.then((): Settled => ({ status: "late", job: entry.job }))])));
+  if (deadlineTimer) clearTimeout(deadlineTimer);
 
+  const late: LateResult[] = [];
+  settled.forEach((result, index) => {
+    if (result.status !== "late") return;
+    const entry = running[index]!;
+    late.push({ tool: entry.label, deadlineMs });
+    notes.push(`Dropped late result from ${entry.label}: nothing arrived within the ${deadlineMs}ms deadline.`);
+    entry.done.then((outcome) => {
+      deps.onLate?.({
+        tool: entry.label,
+        elapsedMs: Date.now() - entry.startedAt,
+        deadlineMs,
+        status: outcome.status === "fulfilled" ? "ok" : "error",
+      });
+    }, () => undefined);
+  });
+  if (late.length > 0) cancel.abort();
+
+  let rawChars = 0;
   for (const result of settled) {
+    if (result.status === "late") continue;
     if (result.status === "rejected") {
       const reason = result.reason;
       const tool = reason instanceof ToolCallError ? reason.tool : "unknown";
@@ -186,42 +241,102 @@ export async function gather(plan: GatherInput, deps: GatherDeps = {}): Promise<
       });
       continue;
     }
-    const { job, value } = result.value;
+    const { job, value } = result;
     if (isRepoOutcome(value)) {
+      rawChars += value.rawChars;
       hits.push(...value.hits);
       gaps.push(...value.gaps);
       notes.push(...value.notes);
       continue;
     }
-    for (const tool of job.tools) hits.push(...toHits(tool, value, observedAt));
+    for (const tool of job.tools) {
+      const toolHits = toHits(tool, value, observedAt);
+      if (tool === job.tools[0]) rawChars += toolHits.reduce((sum, hit) => sum + hit.text.length, 0);
+      hits.push(...toolHits);
+    }
   }
+  // Cache hits are context the caller would otherwise have paid for too.
+  rawChars += hits.filter((hit) => cacheHits.includes(hit.sources[0]!)).reduce((sum, hit) => sum + hit.text.length, 0);
 
   const ranked = dedupe(hits, observedAt).sort((left, right) => {
     const delta = rankScore(right, observedAt) - rankScore(left, observedAt);
     if (delta !== 0) return delta;
     return left.sources.join(",").localeCompare(right.sources.join(","));
   });
-  const lines = ranked.map((hit) => {
-    const body = hit.text.length > budget.perItemChars ? `${hit.text.slice(0, budget.perItemChars)}…` : hit.text;
-    return `- [${hit.sources.join(", ")}] ${body}`;
-  });
+  const packed = packLines(ranked, budget);
+  if (packed.codeDropped > 0) {
+    notes.push(`[code search capped at ${budget.codeMaxChars} chars; dropped ${packed.codeDropped} snippet${packed.codeDropped === 1 ? "" : "s"}]`);
+  }
   const rendered = renderBounded({
-    lines,
+    lines: packed.lines,
     gaps: dedupeGapMessages(gaps),
     errors: errors.map((error) => error.message),
     notes,
     maxChars: budget.maxChars,
   });
 
+  const keptCount = packed.lines.length - rendered.omitted;
+  const keptLines = packed.lines.slice(0, keptCount);
+  const codeChars = keptLines.reduce((sum, line, index) => sum + (packed.code[index] ? line.length : 0), 0);
   return {
     summary: rendered.text,
-    omitted: rendered.omitted,
+    omitted: rendered.omitted + packed.codeDropped,
+    citations: packed.cites.slice(0, keptCount),
+    late,
+    stats: {
+      rawChars,
+      packedChars: rendered.text.length,
+      codeChars,
+      ratio: rawChars > 0 ? Math.round((rendered.text.length / rawChars) * 1000) / 1000 : 0,
+    },
     errors,
     gaps: dedupeGapObjects(gaps),
     invocations,
     cacheHits,
     cacheBypassed,
   };
+}
+
+const CODE_SOURCE = "repo_spatial";
+
+/**
+ * Turn ranked hits into cited summary lines. Every line names its source and a
+ * citation before the body, so clipping the tail never strips the citation.
+ * Code-search lines share their own cap inside the total budget.
+ */
+export function packLines(ranked: readonly Hit[], budget: Budget): {
+  lines: string[];
+  cites: string[];
+  code: boolean[];
+  codeDropped: number;
+} {
+  const lines: string[] = [];
+  const cites: string[] = [];
+  const code: boolean[] = [];
+  let codeUsed = 0;
+  let codeDropped = 0;
+  for (const hit of ranked) {
+    const body = hit.text.length > budget.perItemChars ? `${hit.text.slice(0, budget.perItemChars)}…` : hit.text;
+    let line = `- [${hit.sources.join(", ")}] (${hit.cite}) ${body}`;
+    const isCode = hit.sources.length === 1 && hit.sources[0] === CODE_SOURCE;
+    if (isCode) {
+      const room = budget.codeMaxChars - codeUsed;
+      const head = `- [${hit.sources.join(", ")}] (${hit.cite}) `;
+      if (line.length > room) {
+        // Clip the first code line that does not fit; drop the rest.
+        if (room > head.length + 1 && codeUsed === 0) line = `${line.slice(0, room - 1)}…`;
+        else {
+          codeDropped += 1;
+          continue;
+        }
+      }
+      codeUsed += line.length + 1;
+    }
+    lines.push(line);
+    cites.push(hit.cite);
+    code.push(isCode);
+  }
+  return { lines, cites, code, codeDropped };
 }
 
 /** Recency is content age. Freshness is how recently we observed it. */
@@ -234,6 +349,7 @@ export function rankScore(hit: Hit, now: number): number {
 
 interface RepoOutcome {
   kind: "repo";
+  rawChars: number;
   hits: Hit[];
   gaps: Gap[];
   notes: string[];
@@ -296,7 +412,7 @@ async function collectRepoSpatial(
       try {
         const snippets = await deps.repoFallback.search({ repos: requested, query, budgetChars, signal });
         notes.push(stale ? "Used direct file search instead of the stale index." : "Used direct file search because the code index was unavailable.");
-        return { kind: "repo", hits: snippetHits(snippets, budgetChars, notes), gaps, notes };
+        return { kind: "repo", rawChars: snippetChars(snippets), hits: snippetHits(snippets, budgetChars, notes), gaps, notes };
       } catch (error) {
         notes.push(`Direct file search failed (${errorText(error)}).`);
       }
@@ -306,10 +422,21 @@ async function collectRepoSpatial(
       : optedIn.length === 0
         ? { code: "repo_spatial_disabled", message: "No opted-in code index covers the requested repos, and no direct file search fallback is configured." }
         : { code: "repo_spatial_unavailable", message: "The code index is unavailable and no direct file search fallback is configured." });
-    return { kind: "repo", hits: [], gaps, notes };
+    return { kind: "repo", rawChars: 0, hits: [], gaps, notes };
   }
 
-  return { kind: "repo", hits: snippetHits(responseSnippets, budgetChars, notes), gaps, notes };
+  return { kind: "repo", rawChars: snippetChars(responseSnippets), hits: snippetHits(responseSnippets, budgetChars, notes), gaps, notes };
+}
+
+function snippetChars(snippets: readonly RepoSpatialSnippet[]): number {
+  return snippets.reduce((sum, snippet) => sum + snippet.text.length + snippet.path.length, 0);
+}
+
+export function snippetCite(snippet: RepoSpatialSnippet): string {
+  const where = snippet.lineStart != null
+    ? `:${snippet.lineStart}${snippet.lineEnd != null && snippet.lineEnd !== snippet.lineStart ? `-${snippet.lineEnd}` : ""}`
+    : "";
+  return `${snippet.repo ? `${snippet.repo}:` : ""}${snippet.path}${where}`;
 }
 
 function snippetHits(snippets: RepoSpatialSnippet[], budgetChars: number, notes: string[]): Hit[] {
@@ -318,13 +445,16 @@ function snippetHits(snippets: RepoSpatialSnippet[], budgetChars: number, notes:
     notes.push(`Excluded ${filtered.dropped.length} secret or generated path${filtered.dropped.length === 1 ? "" : "s"}.`);
   }
   const bounded = snippetsWithinBudget(filtered.kept, budgetChars);
+  const cut = filtered.kept.length - bounded.length;
+  if (cut > 0) notes.push(`[code search capped at ${budgetChars} chars; dropped ${cut} snippet${cut === 1 ? "" : "s"}]`);
   return bounded.map((snippet) => ({
     sources: ["repo_spatial"],
-    text: snippet.symbol ? `${snippet.path} (${snippet.symbol}): ${snippet.text}` : `${snippet.path}: ${snippet.text}`,
+    text: snippet.symbol ? `${snippet.symbol}: ${snippet.text}` : snippet.text,
     relevance: 0.6,
     observedAt: Date.now(),
     live: false,
     stale: false,
+    cite: snippetCite(snippet),
   }));
 }
 
@@ -332,11 +462,25 @@ function isRepoOutcome(value: unknown): value is RepoOutcome {
   return Boolean(value && typeof value === "object" && (value as RepoOutcome).kind === "repo");
 }
 
+const CITE_FIELDS = ["cite", "url", "source", "path", "id", "key"] as const;
+
+function citeFor(tool: ToolName, row: unknown, index: number): string {
+  if (row && typeof row === "object") {
+    const record = row as Record<string, unknown>;
+    for (const field of CITE_FIELDS) {
+      const value = record[field];
+      if ((typeof value === "string" && value.trim()) || typeof value === "number") return `${tool}:${String(value).trim()}`;
+    }
+  }
+  return `${tool}#${index + 1}`;
+}
+
 function toHits(tool: ToolName, raw: unknown, observedAt: number): Hit[] {
   const rows = unpack(raw);
-  return rows.map((row) => {
+  return rows.map((row, index) => {
+    const cite = citeFor(tool, row, index);
     if (typeof row === "string") {
-      return { sources: [tool], text: row, relevance: 0.5, observedAt, live: isLiveTool(tool), stale: false };
+      return { sources: [tool], text: row, relevance: 0.5, observedAt, live: isLiveTool(tool), stale: false, cite };
     }
     if (row && typeof row === "object") {
       const record = row as Record<string, unknown>;
@@ -359,9 +503,10 @@ function toHits(tool: ToolName, raw: unknown, observedAt: number): Hit[] {
         observedAt,
         live: isLiveTool(tool),
         stale: record.stale === true,
+        cite,
       };
     }
-    return { sources: [tool], text: String(row), relevance: 0.5, observedAt, live: isLiveTool(tool), stale: false };
+    return { sources: [tool], text: String(row), relevance: 0.5, observedAt, live: isLiveTool(tool), stale: false, cite };
   });
 }
 
@@ -378,7 +523,9 @@ function unpack(raw: unknown): unknown[] {
 function dedupe(hits: Hit[], now: number): Hit[] {
   const byHash = new Map<string, Hit>();
   for (const hit of hits) {
-    const hash = createHash("sha256").update(hit.text.replace(/\s+/g, " ").trim()).digest("hex");
+    // The same line in two files is two citations, so code hits key on their citation too.
+    const key = hit.sources.includes(CODE_SOURCE) ? `${hit.cite}\n${hit.text}` : hit.text;
+    const hash = createHash("sha256").update(key.replace(/\s+/g, " ").trim()).digest("hex");
     const existing = byHash.get(hash);
     if (!existing) {
       byHash.set(hash, { ...hit, sources: [...hit.sources] });
@@ -394,6 +541,7 @@ function dedupe(hits: Hit[], now: number): Hit[] {
       existing.live = hit.live;
       existing.stale = hit.stale;
       existing.text = hit.text;
+      existing.cite = hit.cite;
     }
   }
   return [...byHash.values()];

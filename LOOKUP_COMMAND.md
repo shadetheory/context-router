@@ -18,7 +18,7 @@ Repository: [https://github.com/shadetheory/context-router](https://github.com/s
 
 1. The planner in `src/planner.ts` builds a tool plan. Keywords and local embeddings handle obvious asks. A caller-supplied local model runs only when the ask is ambiguous.
 2. The gatherer in `src/gatherer.ts` runs the selected reads with `Promise.allSettled`, a timeout per read, and partial-failure handling.
-3. Hits are deduped, ranked, and packed into one summary. The summary length is at most the output budget (default 4000 characters).
+3. Hits are deduped, ranked, and packed into one summary. Every line carries a citation. The summary length is at most the output budget (default 6000 characters, of which code search may use at most 3000). Reads that miss the gather deadline (default 10 s) are dropped and noted.
 
 Live agent, pane, session, and workspace reads are not cached. `herdr_agent_list` calls the host's agent method, not `bus_sessions`. `herdr_pane_list` lists panes, not files.
 

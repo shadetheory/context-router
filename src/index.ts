@@ -1,6 +1,6 @@
 export { planQuery, buildModelPrompt, enforcePlanConstraints, mentionedRepos, coercePlan } from "./planner.ts";
-export { gather, rankScore, runWithTimeout, ToolCallError } from "./gatherer.ts";
-export { lookup } from "./lookup.ts";
+export { gather, packLines, rankScore, runWithTimeout, snippetCite, ToolCallError } from "./gatherer.ts";
+export { lookup, lookupBurst } from "./lookup.ts";
 export { enforceBudget, budgetFromTokens, renderBounded, resolveBudget, CHARS_PER_TOKEN } from "./budget.ts";
 export { createMemoryCache, cacheKey, isLiveTool, MEMORY_CACHE_TTL_MS } from "./cache.ts";
 export { executorsFromHost } from "./host.ts";
@@ -15,6 +15,7 @@ export {
 export { embed, cosine, normalizeQuery, tokenize } from "./text.ts";
 export {
   DEFAULT_BUDGET,
+  DEFAULT_DEADLINE_MS,
   LIVE_TOOLS,
   MEMORY_TOOLS,
   TIMEOUTS_MS,
@@ -26,7 +27,9 @@ export type {
   GatherResult,
   Hit,
   KnownRepo,
+  LateResult,
   LocalModel,
+  PackStats,
   PlanOptions,
   PlanTools,
   QueryPlan,
@@ -38,4 +41,4 @@ export type {
 } from "./types.ts";
 export type { RepoSpatialFallback, RepoSpatialProvider, RepoSpatialRequest, RepoSpatialResponse, RepoSpatialSnippet } from "./repo-spatial.ts";
 export type { HostTools } from "./host.ts";
-export type { LookupDeps, LookupResult } from "./lookup.ts";
+export type { BurstResult, LookupDeps, LookupResult } from "./lookup.ts";
