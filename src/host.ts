@@ -10,6 +10,8 @@ export interface HostTools {
   herdr_pane_list?: (input: unknown) => Promise<unknown>;
   bus_sessions?: (input: unknown) => Promise<unknown>;
   workspace_map?: (input: unknown) => Promise<unknown>;
+  /** Read-only PR / CI lookup on the code host. */
+  code_host?: (input: unknown) => Promise<unknown>;
   localModel?: LocalModel;
   knownRepos?: readonly KnownRepo[];
   repoSpatial?: RepoSpatialProvider;
@@ -36,5 +38,6 @@ export function executorsFromHost(tools: HostTools | undefined): Partial<Record<
   bind("herdr_pane_list", tools.herdr_pane_list);
   bind("bus_sessions", tools.bus_sessions);
   bind("workspace_map", tools.workspace_map);
+  bind("code_host", tools.code_host);
   return executors;
 }

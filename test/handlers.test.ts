@@ -75,3 +75,16 @@ test("an invalid gatherer plan becomes an error summary", async () => {
   const summary = await gatherer.handler("not json", {});
   assert.match(summary, /Invalid tool plan/);
 });
+
+test("lookup sends a PR status ask to the host's code host when it has one", async () => {
+  let asked: unknown;
+  const summary = await lookup.handler("check PR status for asgard", {
+    knownRepos: [{ alias: "asgard", repo: "shadetheory/Asgard" }],
+    code_host: async (params) => {
+      asked = params;
+      return ["PR #9 open, checks green"];
+    },
+  });
+  assert.deepEqual((asked as { repos: string[] }).repos, ["shadetheory/Asgard"]);
+  assert.match(summary, /PR #9 open/);
+});

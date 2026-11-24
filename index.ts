@@ -8,6 +8,7 @@ const skill = {
     const result = await lookup(query, {
       model: tools?.localModel,
       knownRepos: tools?.knownRepos,
+      codeHost: typeof tools?.code_host === "function",
       executors: executorsFromHost(tools),
       repoSpatial: tools?.repoSpatial,
       repoFallback: tools?.repoFallback,

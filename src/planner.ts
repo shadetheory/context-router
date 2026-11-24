@@ -32,6 +32,7 @@ const KEYWORD_PHRASES: Record<ToolName, readonly string[]> = {
   knowledge_retrieve: ["what do you know", "what do we know", "decisions about", "find decisions", "find patterns", "documented"],
   smart_recall: ["this session", "this conversation", "what did we say", "what did we decide", "smart recall", "session memory"],
   repo_spatial: [],
+  code_host: [],
 };
 
 const PROTOTYPES: Record<ToolName, readonly string[]> = {
@@ -43,6 +44,7 @@ const PROTOTYPES: Record<ToolName, readonly string[]> = {
   knowledge_retrieve: ["retrieve knowledge", "documented decisions", "knowledge about"],
   smart_recall: ["earlier this session", "what did we say", "session memory"],
   repo_spatial: ["where is this function defined", "symbol reference in the repo", "implementation in repo"],
+  code_host: [],
 };
 
 const PATH_OWNERS = new Set([
@@ -144,17 +146,20 @@ export function enforcePlanConstraints(
     delete next.herdr_pane_list;
     if (!next.workspace_map) next.workspace_map = { timeout_ms: TIMEOUTS_MS.live };
   }
+  if (!options.codeHost) delete next.code_host;
   if ((prStatusIntent(normalized) || ciStatusIntent(normalized)) && !memoryIntent(normalized)) {
     delete next.vector_search;
     delete next.knowledge_retrieve;
     delete next.smart_recall;
-    if (prStatusIntent(normalized)) {
+    if (options.codeHost) {
+      next.code_host = { repos, query: query.trim(), timeout_ms: next.code_host?.timeout_ms || TIMEOUTS_MS.codeHost };
+    } else if (prStatusIntent(normalized)) {
       gaps.push({
         code: "live_pr_status",
         message: "No live pull-request tool is available. Stored memory was not queried, because it cannot answer current PR status.",
       });
     }
-    if (ciStatusIntent(normalized)) {
+    if (ciStatusIntent(normalized) && !options.codeHost) {
       gaps.push({
         code: "live_ci_status",
         message: "No live CI tool is available. Stored memory was not queried, because it cannot answer current CI status.",
@@ -274,6 +279,7 @@ function toolsFromNames(names: Set<ToolName>): PlanTools {
     if (name === "vector_search" || name === "knowledge_retrieve") tools[name] = { query: "", limit: 5, timeout_ms: TIMEOUTS_MS.memory };
     else if (name === "smart_recall") tools[name] = { query: "", scope: "session", limit: 5, timeout_ms: TIMEOUTS_MS.memory };
     else if (name === "repo_spatial") tools[name] = { repos: [], query: "", timeout_ms: TIMEOUTS_MS.repo };
+    else if (name === "code_host") tools[name] = { repos: [], query: "", timeout_ms: TIMEOUTS_MS.codeHost };
     else tools[name] = { timeout_ms: TIMEOUTS_MS.live };
   }
   return tools;
@@ -301,6 +307,9 @@ function fillDefaults(tools: PlanTools, query: string): PlanTools {
       query,
       timeout_ms: tools.repo_spatial.timeout_ms || TIMEOUTS_MS.repo,
     };
+  }
+  if (tools.code_host) {
+    filled.code_host = { repos: tools.code_host.repos, query, timeout_ms: tools.code_host.timeout_ms || TIMEOUTS_MS.codeHost };
   }
   return filled;
 }
@@ -407,13 +416,13 @@ export function coercePlan(input: unknown): QueryPlan {
         limit: numberIn(fields.limit, 1, 20) ?? 5,
         timeout_ms: numberIn(fields.timeout_ms, 1, 60_000) ?? TIMEOUTS_MS.memory,
       };
-    } else if (name === "repo_spatial") {
+    } else if (name === "repo_spatial" || name === "code_host") {
       const fromArray = Array.isArray(value) ? value : fields.repos;
       const repos = Array.isArray(fromArray) ? fromArray.filter((repo): repo is string => typeof repo === "string") : [];
       tools[name] = {
         repos,
         query: typeof fields.query === "string" ? fields.query : "",
-        timeout_ms: numberIn(fields.timeout_ms, 1, 60_000) ?? TIMEOUTS_MS.repo,
+        timeout_ms: numberIn(fields.timeout_ms, 1, 60_000) ?? (name === "code_host" ? TIMEOUTS_MS.codeHost : TIMEOUTS_MS.repo),
       };
     } else {
       tools[name] = { timeout_ms: numberIn(fields.timeout_ms, 1, 60_000) ?? TIMEOUTS_MS.live };

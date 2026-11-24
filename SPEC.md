@@ -181,3 +181,21 @@ Node.js 22.18 or newer. The suite covers planner routes (including the old bad e
 - Treating a stale index as a stand-in for current source
 - Write or merge tools
 - Misroute logs and a retrain loop
+
+## Plans and Asgard's capability catalog (M4)
+
+`buildPlan(ask, options)` returns an `ExecutionPlan` for the fan-out executor: `{version, id, query, created_at, budget: {total_chars, code_chars}, deadline_ms, steps, gaps, ambiguous, used_model, model_calls}`. Each step is one bounded call: `{id, target, args, timeout_ms, budget_chars, risk, requires_approval, concurrent, via, score}`. `toParallelToolsBatch(plan)` turns it into the `options` and `calls` of a parallel-tools-rs batch; the host supplies `tools`. Calls go in unapproved, so approval-gated steps are refused by the executor.
+
+Read steps come from `planQuery`. House actions come from Asgard's capability catalog, which Asgard owns (`app/RequestLayer/HouseCapabilityCatalog.php` in shadetheory/Asgard). context-router never forks it. `loadAsgardCatalog({checkout, ref})` reads it with `git show <ref>:<path>`, so the Asgard work tree is not touched. `loadAsgardCatalog({file})` also accepts the PHP file or a JSON export.
+
+Routing order:
+
+1. Deterministic. A capability matches when the ask has the action's verb and one of its spoken targets (or any free text for query targets). When two capabilities share an action, the domain cue has to appear too, so a message is never planned as a money send.
+2. Token embedding against `<action> <target>` prototypes (threshold 0.8).
+3. Local model, only when the top two embedding scores are within 0.05 (a tie). Read routing still calls the model only when no keyword or embedding route was confident.
+
+Every model call writes one ledger-model entry to `plan.model_calls` and `onModelCall`: `{purpose, model, why, at, outcome, elapsedMs}`.
+
+High-risk capabilities (locks, money, sending messages) are planned with `requires_approval: true` and a `needs_jordan` gap. Nothing in context-router runs them. Capabilities Asgard lists as not wired yet add a `capability_unwired` gap.
+
+With `codeHost: true` (the host has a read-only PR/CI reader), live PR and CI asks plan `code_host` instead of a gap. They still never touch stored memory.
