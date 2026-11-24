@@ -5,18 +5,24 @@ export const CHARS_PER_TOKEN = 4;
 
 export function budgetFromTokens(maxTokens: number, charsPerToken = CHARS_PER_TOKEN): Budget {
   const tokens = Number.isFinite(maxTokens) ? Math.max(0, maxTokens) : 0;
+  const maxChars = Math.floor(tokens * charsPerToken);
   return {
-    maxChars: Math.floor(tokens * charsPerToken),
+    maxChars,
     perItemChars: DEFAULT_BUDGET.perItemChars,
+    // Code search keeps the default 1:2 share of the total, so 1500 tokens is 6000/3000.
+    codeMaxChars: Math.floor(maxChars / 2),
   };
 }
 
 export function resolveBudget(budget?: Partial<Budget>): Budget {
   const maxChars = budget?.maxChars ?? DEFAULT_BUDGET.maxChars;
   const perItemChars = budget?.perItemChars ?? DEFAULT_BUDGET.perItemChars;
+  const total = Number.isFinite(maxChars) ? Math.max(0, Math.floor(maxChars)) : DEFAULT_BUDGET.maxChars;
+  const code = budget?.codeMaxChars ?? Math.min(DEFAULT_BUDGET.codeMaxChars, Math.floor(total / 2));
   return {
-    maxChars: Number.isFinite(maxChars) ? Math.max(0, Math.floor(maxChars)) : DEFAULT_BUDGET.maxChars,
+    maxChars: total,
     perItemChars: Number.isFinite(perItemChars) ? Math.max(1, Math.floor(perItemChars)) : DEFAULT_BUDGET.perItemChars,
+    codeMaxChars: Number.isFinite(code) ? Math.min(total, Math.max(0, Math.floor(code))) : Math.min(total, DEFAULT_BUDGET.codeMaxChars),
   };
 }
 

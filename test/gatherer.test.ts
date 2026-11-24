@@ -73,7 +73,7 @@ test("identical content is deduped and higher relevance ranks first", async () =
   });
   assert.equal(result.summary.split("HIGH_RANK").length - 1, 1);
   assert.ok(result.summary.indexOf("HIGH_RANK") < result.summary.indexOf("LOW_RANK"));
-  assert.match(result.summary, /\[vector_search, knowledge_retrieve\] HIGH_RANK/);
+  assert.match(result.summary, /\[vector_search, knowledge_retrieve\] \(vector_search#\d+\) HIGH_RANK/);
 });
 
 test("the same executor and params are invoked once", async () => {

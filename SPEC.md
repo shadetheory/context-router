@@ -83,11 +83,12 @@ There is no weekly retrain loop in this milestone. Misroute logs are not written
 `gather(plan, deps)` runs the selected reads.
 
 - Reads are independent. There is no dependency graph.
-- `Promise.allSettled` waits for the batch. One rejection does not drop the others.
+- The batch waits until every read settles or the gather deadline passes (`deadlineMs`, default 10000). One rejection does not drop the others.
+- A read still running at the deadline is cancelled through its `AbortSignal`. Its result is never used, even if it lands later. It is listed in `late`, named in a Notes line, and reported to `onLate` with how late it was. Late reads are not errors: the caller gets the partial result on time.
 - Each read has its own timeout and an `AbortSignal`. A timeout names the tool and leaves sibling results in the summary.
 - Two plan keys that share the same executor function and the same params run once. `herdr_agent_list` is not wired to `bus_sessions`. `herdr_pane_list` is not wired to `workspace_map`. If the host did not supply a method, the summary says that tool has no executor.
 - Results are split into hits. Relevance comes from `score` when a tool reports it (otherwise 0.5). `age` or `age_days` is content age.
-- Dedupe hashes whitespace-collapsed text with SHA-256. The higher-ranked copy is kept and the sources are merged.
+- Dedupe hashes whitespace-collapsed text with SHA-256. Code hits hash their citation with the text, so the same line in two files stays two hits. The higher-ranked copy is kept and the sources are merged.
 - Rank is `0.5 * relevance + 0.3 * recency + 0.2 * freshness`.
   - Recency is how old the content is. Missing timestamps use 0.5. A week of age cuts the recency term roughly in half.
   - Freshness is how recently this process observed the hit. Live reads are fresh. A hit marked stale scores 0.
@@ -103,7 +104,15 @@ There is no weekly retrain loop in this milestone. Misroute logs are not written
 
 ### Output budget
 
-`Budget.maxChars` is a hard ceiling on the summary string (default 4000). `perItemChars` (default 600) clips a single hit before it competes. `budgetFromTokens(maxTokens)` uses 4 characters per token.
+`Budget.maxChars` is a hard ceiling on the summary string (default 6000). `Budget.codeMaxChars` is a hard ceiling on code-search (`repo_spatial`) lines inside it (default 3000, never above `maxChars`). `perItemChars` (default 600) clips a single hit before it competes. `budgetFromTokens(maxTokens)` uses 4 characters per token and gives code search half, so `budgetFromTokens(1500)` is 6000/3000.
+
+Code search is capped twice: snippets are packed to `codeMaxChars` before ranking, and the rendered code lines (with their citations) are capped again. Dropped snippets are counted in a Notes line.
+
+Every context line is cited. Code lines cite `owner/repo:path:line`. Other reads cite the first of `cite`, `url`, `source`, `path`, `id`, or `key` on the record as `tool:value`, or `tool#n` (rank within that read) when the record has none. The citation sits before the text, so clipping never removes it. `GatherResult.citations` lists them in summary order.
+
+`GatherResult.stats` records `rawChars` (what the reads returned), `packedChars` (summary length), `codeChars`, and `ratio` (packed / raw).
+
+`lookupBurst(asks)` runs several asks concurrently. Each gets an equal share of both caps, and the joined report is clipped to `maxChars` again.
 
 Packing keeps higher-ranked hits and drops the rest. The omission note counts toward the ceiling. `enforceBudget` is the last step, so the returned string length is always `<= maxChars`. A budget of 0 returns an empty string.
 
@@ -113,7 +122,7 @@ Calling more tools does not grant a larger summary. Both reads still run; the te
 
 ```
 ## Context
-- [source] text
+- [source] (citation) text
 
 ## Gaps
 - message
