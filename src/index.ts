@@ -1,6 +1,14 @@
 export { planQuery, buildModelPrompt, enforcePlanConstraints, mentionedRepos, coercePlan } from "./planner.ts";
 export { gather, packLines, rankScore, runWithTimeout, snippetCite, ToolCallError } from "./gatherer.ts";
 export { lookup, lookupBurst } from "./lookup.ts";
+export { buildPlan, toParallelToolsBatch, PLAN_VERSION } from "./plan.ts";
+export {
+  ASGARD_CATALOG_PATH,
+  loadAsgardCatalog,
+  matchCapabilitiesDeterministic,
+  parseAsgardCatalogPhp,
+  parseCatalogJson,
+} from "./catalog.ts";
 export { enforceBudget, budgetFromTokens, renderBounded, resolveBudget, CHARS_PER_TOKEN } from "./budget.ts";
 export { createMemoryCache, cacheKey, isLiveTool, MEMORY_CACHE_TTL_MS } from "./cache.ts";
 export { executorsFromHost } from "./host.ts";
@@ -42,3 +50,5 @@ export type {
 export type { RepoSpatialFallback, RepoSpatialProvider, RepoSpatialRequest, RepoSpatialResponse, RepoSpatialSnippet } from "./repo-spatial.ts";
 export type { HostTools } from "./host.ts";
 export type { BurstResult, LookupDeps, LookupResult } from "./lookup.ts";
+export type { BuildPlanOptions, ExecutionPlan, ModelLedgerEntry, PlanStep, StepTarget } from "./plan.ts";
+export type { AsgardCatalogSource, Capability, CapabilityMatch } from "./catalog.ts";

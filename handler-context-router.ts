@@ -8,6 +8,7 @@ const handler = {
     const plan = await planQuery(query, {
       model: tools?.localModel,
       knownRepos: tools?.knownRepos,
+      codeHost: typeof tools?.code_host === "function",
     });
     return JSON.stringify(plan, null, 2);
   },

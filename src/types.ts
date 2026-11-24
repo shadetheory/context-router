@@ -8,6 +8,7 @@ export const TOOL_NAMES = [
   "bus_sessions",
   "workspace_map",
   "repo_spatial",
+  "code_host",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -20,6 +21,7 @@ export const LIVE_TOOLS: ReadonlySet<ToolName> = new Set([
   "herdr_pane_list",
   "bus_sessions",
   "workspace_map",
+  "code_host",
 ]);
 
 export const MEMORY_TOOLS: ReadonlySet<ToolName> = new Set([
@@ -32,6 +34,7 @@ export const TIMEOUTS_MS = {
   memory: 5_000,
   live: 3_000,
   repo: 10_000,
+  codeHost: 8_000,
 } as const;
 
 export interface VectorParams {
@@ -67,6 +70,8 @@ export interface PlanTools {
   bus_sessions?: LiveParams;
   workspace_map?: LiveParams;
   repo_spatial?: RepoParams;
+  /** Live pull-request / CI read from the code host. Planned only when the host has one. */
+  code_host?: RepoParams;
 }
 
 export type Via = "keyword" | "embedding" | "model" | "constraint";
@@ -84,7 +89,9 @@ export type GapCode =
   | "repo_spatial_disabled"
   | "repo_spatial_stale"
   | "repo_spatial_unavailable"
-  | "write_requires_approval";
+  | "write_requires_approval"
+  | "needs_jordan"
+  | "capability_unwired";
 
 export interface Gap {
   code: GapCode;
@@ -173,6 +180,8 @@ export interface GatherResult {
 export interface LocalModel {
   /** Complete a short routing prompt. Called only for ambiguous asks. */
   complete(prompt: string): Promise<string>;
+  /** Model tag, for the ledger-model line. */
+  name?: string;
 }
 
 export interface KnownRepo {
@@ -185,6 +194,8 @@ export interface KnownRepo {
 export interface PlanOptions {
   model?: LocalModel;
   knownRepos?: readonly KnownRepo[];
+  /** The host can read live PR and CI state, so those asks go to `code_host`, not to a gap. */
+  codeHost?: boolean;
 }
 
 export type ToolExecutor = (
